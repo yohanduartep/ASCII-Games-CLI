@@ -120,7 +120,7 @@ def display_game(shape=None, x=0, y=0, next_shape=None):
     print(
         "\n"
         + " " * (offset)
-        + "Controls: [a] left  [d] right  [s] drop  [w/r] rotate  [q/e] switch  [x] quit"
+        + "Controls: [a] left  [d] right  [s] down  [f] drop  [w/r] rotate  [q/e] switch  [x] quit"
     )
 
 
@@ -159,18 +159,6 @@ def clear_lines(board):
             fall_speed = max(0.01, fall_speed * 0.9)
 
 
-def random_board_switch():
-    global current_board
-    current_board = random.choice(["left", "center", "right"])
-
-
-def maybe_add_obstacles(last_time, interval):
-    if time.time() - last_time > interval:
-        random_board_switch()
-        return time.time()
-    return last_time
-
-
 def read_key(timeout=0.1):
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
@@ -183,6 +171,7 @@ def read_key(timeout=0.1):
 
 
 def switch_board(target, shape, x, y):
+
     global current_board
     if can_move(shape, x, y, BOARDS[target]):
         current_board = target
@@ -195,9 +184,6 @@ def main_game():
     global current_board, fall_speed
     current_board = "center"
     next_shape = random.choice(list(SHAPES.values()))
-
-    last_obstacle_time = time.time()
-    obstacle_interval = 10
 
     while True:
         shape = next_shape
@@ -214,16 +200,14 @@ def main_game():
             display_game(shape, x, y, next_shape)
             key = read_key(0.05)
 
-            obstacle_interval = max(2, 10 - points // 1000)
-            last_obstacle_time = maybe_add_obstacles(
-                last_obstacle_time, obstacle_interval
-            )
-
             if key == "a" and can_move(shape, x - 1, y, BOARDS[current_board]):
                 x -= 1
             elif key == "d" and can_move(shape, x + 1, y, BOARDS[current_board]):
                 x += 1
             elif key == "s":
+                if can_move(shape, x, y + 1, BOARDS[current_board]):
+                    y += 1
+            elif key == "f":
                 while can_move(shape, x, y + 1, BOARDS[current_board]):
                     y += 1
                 place_shape(shape, x, y, BOARDS[current_board])
