@@ -200,11 +200,15 @@ def main_game():
             display_game(shape, x, y, next_shape)
             key = read_key(0.05)
 
-            if key == "a" and can_move(shape, x - 1, y, BOARDS[current_board]):
+            if (key == "a" or key == "h") and can_move(
+                shape, x - 1, y, BOARDS[current_board]
+            ):
                 x -= 1
-            elif key == "d" and can_move(shape, x + 1, y, BOARDS[current_board]):
+            elif (key == "d" or key == "l") and can_move(
+                shape, x + 1, y, BOARDS[current_board]
+            ):
                 x += 1
-            elif key == "s":
+            elif key == "s" or key == "j":
                 if can_move(shape, x, y + 1, BOARDS[current_board]):
                     y += 1
             elif key == "f":
@@ -213,7 +217,7 @@ def main_game():
                 place_shape(shape, x, y, BOARDS[current_board])
                 clear_lines(BOARDS[current_board])
                 break
-            elif key == "w" or key == "r":
+            elif key == "w" or key == "r" or key == "k":
                 r = rotate(shape)
                 if can_move(r, x, y, BOARDS[current_board]):
                     shape = r
