@@ -11,7 +11,7 @@ A collection of playable games rendered entirely using ASCII characters in the t
 Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/ascii-terminal-games.git
+git clone https://github.com/yohanduartep/ascii-terminal-games.git
 cd ascii-terminal-games
 
 
