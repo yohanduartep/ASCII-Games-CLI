@@ -20,7 +20,7 @@ const (
 	VERTICAL_BORDER       = "|"
 )
 
-var score int
+var score float64 = 0
 
 var BOARDS map[string][HEIGHT][WIDTH]int = make(map[string][HEIGHT][WIDTH]int)
 
@@ -41,6 +41,7 @@ var gameWidth int = 0
 
 func init() {
 	clear = make(map[string]func())
+	score = 0
 
 	clear["linux"] = func() {
 		cmd := exec.Command("clear")
@@ -181,7 +182,7 @@ func drawBoard() {
 	preview := strings.Split(drawNextPiece(), "\r\n")
 
 	fmt.Println(centerString("Tetris CLI") + "\r")
-	fmt.Println(centerString(fmt.Sprintf("Score: %d", score)) + "\r")
+	fmt.Println(centerString(fmt.Sprintf("Score: %.0f", score)) + "\r")
 	fmt.Println(centerString(fmt.Sprint("Next Piece:")) + "\r")
 	for _, line := range preview {
 		fmt.Println(centerString(line) + "\r")
@@ -339,6 +340,59 @@ func clearLines() {
 	if currentBoard != "center" {
 		return
 	}
+
+	tempScore := 0.0
+	multiplier := 1.0
+	linesCleared := 0
+
+	for r := HEIGHT - 1; r >= 0; {
+		isLineFull := true
+		for c := range WIDTH {
+			if BOARD[r][c] == 0 {
+				isLineFull = false
+				break
+			}
+		}
+
+		if isLineFull {
+			linesCleared++
+			for moveR := r; moveR > 0; moveR-- {
+				copy(BOARD[moveR][:], BOARD[moveR-1][:])
+			}
+			BOARD[0] = [WIDTH]int{}
+		} else {
+			r--
+		}
+	}
+
+	if linesCleared > 0 {
+		if linesCleared == 1 {
+			tempScore = 100
+		} else if linesCleared == 2 {
+			tempScore = 300
+		} else if linesCleared == 3 {
+			tempScore = 500
+		} else {
+			tempScore = 850
+		}
+		BOARDS[currentBoard] = BOARD
+
+		leftMultiplier := checkAndGetMultiplierFromBoard("left")
+		rightMultiplier := checkAndGetMultiplierFromBoard("right")
+
+		multiplier = (leftMultiplier * rightMultiplier)
+
+		tempScore *= multiplier
+		score += tempScore
+
+		switchBoard("center")
+	}
+}
+
+func checkAndGetMultiplierFromBoard(boardName string) float64 {
+	tempCurrentBoard := currentBoard
+	switchBoard(boardName)
+
 	linesCleared := 0
 	for r := HEIGHT - 1; r >= 0; {
 		isLineFull := true
@@ -360,15 +414,19 @@ func clearLines() {
 		}
 	}
 
-	switch linesCleared {
-	case 1:
-		score += 100
-	case 2:
-		score += 300
-	case 3:
-		score += 500
-	case 4:
-		score += 850
+	BOARDS[boardName] = BOARD
+	switchBoard(tempCurrentBoard)
+
+	if linesCleared == 0 {
+		return 1
+	} else if linesCleared == 1 {
+		return 1.5
+	} else if linesCleared == 2 {
+		return 2
+	} else if linesCleared == 3 {
+		return 2.5
+	} else {
+		return 3
 	}
 }
 
