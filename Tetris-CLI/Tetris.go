@@ -12,74 +12,35 @@ import (
 )
 
 const (
-	WIDTH             int = 10
-	HEIGHT            int = 24
-	EMPTY_CELL            = "  "
 	BLOCK_CELL            = "[]"
+	EMPTY_CELL            = "  "
+	FPS               int = 24
+	HEIGHT            int = 24
 	HORIZONTAL_BORDER     = "-"
 	VERTICAL_BORDER       = "|"
+	WIDTH             int = 10
 )
 
-var score float64 = 0
-
-var BOARDS map[string][HEIGHT][WIDTH]int = make(map[string][HEIGHT][WIDTH]int)
-
+var board [HEIGHT][WIDTH]int
+var boards map[string][HEIGHT][WIDTH]int = make(map[string][HEIGHT][WIDTH]int)
+var clear map[string]func()
 var currentBoard string = "center"
-var BOARD [HEIGHT][WIDTH]int
 var currentPiece [][]int
+var fallInterval float64 = 10
+var gameTicker *time.Ticker
+var gameWidth int = 0
+var level int = 0
+var linesForNextLevel int = 10
 var nextPiece [][]int
 var piecePosition [2]int
-
-var clear map[string]func()
 var rng *rand.Rand
-
-var fall_speed float32 = 0.5
+var score float64
+var terminalWidth int = 80
+var totalLinesCleared int = 0
 var userInputChan = make(chan rune, 1)
 
-var terminalWidth int = 80
-var gameWidth int = 0
-
-func init() {
-	clear = make(map[string]func())
-	score = 0
-
-	clear["linux"] = func() {
-		cmd := exec.Command("clear")
-		cmd.Stdout = os.Stdout
-		cmd.Run()
-	}
-
-	clear["windows"] = func() {
-		cmd := exec.Command("cmd", "/c", "cls")
-		cmd.Stdout = os.Stdout
-		cmd.Run()
-	}
-
-	BOARDS["left"] = [HEIGHT][WIDTH]int{}
-	BOARDS["center"] = [HEIGHT][WIDTH]int{}
-	BOARDS["right"] = [HEIGHT][WIDTH]int{}
-
-	BOARD = BOARDS[currentBoard]
-
-	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	gameWidth = 3*(WIDTH*len(BLOCK_CELL)+2) + 2
-
-	updateTerminalWidth()
-}
-
-func updateTerminalWidth() {
-	if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-		terminalWidth = width
-	}
-}
-
-func centerString(s string) string {
-	padding := max(0, (terminalWidth-len(s))/2)
-	return strings.Repeat(" ", padding) + s
-}
-
-func CallClear() {
+// BOARD OPERATIONS
+func callClear() {
 	if clearFunc, ok := clear[runtime.GOOS]; ok {
 		clearFunc()
 	} else {
@@ -87,75 +48,69 @@ func CallClear() {
 	}
 }
 
-func setNext() {
-	shapes := map[string][][]int{
-		"I": {{1, 1, 1, 1}},
-		"O": {{1, 1}, {1, 1}},
-		"T": {{0, 1, 0}, {1, 1, 1}},
-		"S": {{0, 1, 1}, {1, 1, 0}},
-		"Z": {{1, 1, 0}, {0, 1, 1}},
-		"J": {{1, 0, 0}, {1, 1, 1}},
-		"L": {{0, 0, 1}, {1, 1, 1}},
+func clearLines() {
+	if currentBoard != "center" {
+		return
 	}
+	tempScore := 0.0
+	multiplier := 1.0
+	linesCleared := 0
 
-	keys := make([]string, 0, len(shapes))
-	for k := range shapes {
-		keys = append(keys, k)
-	}
-
-	if len(keys) > 0 {
-		randomKey := keys[rng.Intn(len(keys))]
-		nextPiece = shapes[randomKey]
-	} else {
-		nextPiece = [][]int{{1}}
-	}
-}
-
-func isValidState(pieceToCheck [][]int, pos [2]int) bool {
-	if pieceToCheck == nil {
-		return false
-	}
-	for rIdx, rowData := range pieceToCheck {
-		for cIdx, cell := range rowData {
-			if cell == 1 {
-				boardRow := pos[0] + rIdx
-				boardCol := pos[1] + cIdx
-
-				if boardRow < 0 || boardRow >= HEIGHT || boardCol < 0 || boardCol >= WIDTH {
-					return false
-				}
-				if BOARD[boardRow][boardCol] == 1 {
-					return false
-				}
+	for r := HEIGHT - 1; r >= 0; {
+		isLineFull := true
+		for c := range WIDTH {
+			if board[r][c] == 0 {
+				isLineFull = false
+				break
 			}
 		}
-	}
-	return true
-}
 
-func spawnPiece() {
-	currentPiece = nextPiece
-	if len(currentPiece) > 0 && len(currentPiece[0]) > 0 {
-		piecePosition = [2]int{0, WIDTH/2 - len(currentPiece[0])/2}
-	} else {
-		piecePosition = [2]int{0, WIDTH / 2}
-		currentPiece = [][]int{{1}}
+		if isLineFull {
+			linesCleared++
+			for moveR := r; moveR > 0; moveR-- {
+				copy(board[moveR][:], board[moveR-1][:])
+			}
+			board[0] = [WIDTH]int{}
+		} else {
+			r--
+		}
 	}
 
-	if !isValidState(currentPiece, piecePosition) {
-		CallClear()
-		drawBoard()
-		os.Exit(0)
+	if linesCleared > 0 {
+		totalLinesCleared += linesCleared
+		if totalLinesCleared >= linesForNextLevel {
+			level++
+			linesForNextLevel = (level + 1) * 10
+			updateFallSpeedByLevel()
+		}
+		if linesCleared == 1 {
+			tempScore = 100
+		} else if linesCleared == 2 {
+			tempScore = 300
+		} else if linesCleared == 3 {
+			tempScore = 500
+		} else {
+			tempScore = 850
+		}
+		boards[currentBoard] = board
+
+		leftMultiplier := scoreMultipliers("left")
+		rightMultiplier := scoreMultipliers("right")
+
+		multiplier = (leftMultiplier * rightMultiplier)
+
+		tempScore *= multiplier
+		score += tempScore
+		switchBoard("center")
 	}
-	setNext()
 }
 
 func drawBoard() {
-	CallClear()
+	callClear()
 
-	leftTempBoard := BOARDS["left"]
-	centerTempBoard := BOARDS["center"]
-	rightTempBoard := BOARDS["right"]
+	leftTempBoard := boards["left"]
+	centerTempBoard := boards["center"]
+	rightTempBoard := boards["right"]
 
 	activeTempBoard := &leftTempBoard
 	if currentBoard == "center" {
@@ -165,11 +120,11 @@ func drawBoard() {
 	}
 
 	if currentPiece != nil {
-		for rIdx, rowData := range currentPiece {
-			for cIdx, cell := range rowData {
+		for rowIdx, rowData := range currentPiece {
+			for cellIdx, cell := range rowData {
 				if cell == 1 {
-					boardRow := piecePosition[0] + rIdx
-					boardCol := piecePosition[1] + cIdx
+					boardRow := piecePosition[0] + rowIdx
+					boardCol := piecePosition[1] + cellIdx
 					if boardRow >= 0 && boardRow < HEIGHT && boardCol >= 0 && boardCol < WIDTH {
 						(*activeTempBoard)[boardRow][boardCol] = 1
 					}
@@ -222,10 +177,10 @@ func drawBoard() {
 		fmt.Println(centerString(boardLine))
 	}
 	fmt.Println(centerString("+" + borderLine + "+ " + "+" + borderLine + "+ " + "+" + borderLine + "+\r"))
-
 	fmt.Println(centerString("\nControls: WASD/HJKL = Movement | F = Hard Drop | Q/E = Switch Board | X = Exit"))
 }
 
+// PIECE OPERATIONS
 func drawNextPiece() string {
 	previewWidth := 4
 	previewHeight := 2
@@ -263,133 +218,21 @@ func drawNextPiece() string {
 	return result.String()
 }
 
-func switchBoard(newBoard string) {
-	BOARDS[currentBoard] = BOARD
-	currentBoard = newBoard
-	BOARD = BOARDS[currentBoard]
-}
-
-func tryMoveHorizontal(deltaX int) {
-	nextPosition := [2]int{piecePosition[0], piecePosition[1] + deltaX}
-	if isValidState(currentPiece, nextPosition) {
-		piecePosition = nextPosition
-	}
-}
-
-func tryMovePieceDown() bool {
-	nextPosition := [2]int{piecePosition[0] + 1, piecePosition[1]}
-	if isValidState(currentPiece, nextPosition) {
-		piecePosition = nextPosition
-		return true
-	}
-	return false
-}
-
-func tryRotate() {
-	if currentPiece == nil || len(currentPiece) == 0 || len(currentPiece[0]) == 0 {
-		return
-	}
-
-	originalRows := len(currentPiece)
-	originalCols := len(currentPiece[0])
-
-	rotatedPiece := make([][]int, originalCols)
-	for i := range rotatedPiece {
-		rotatedPiece[i] = make([]int, originalRows)
-	}
-
-	for r := range currentPiece {
-		for c := range currentPiece[r] {
-			rotatedPiece[c][originalRows-1-r] = currentPiece[r][c]
-		}
-	}
-
-	if isValidState(rotatedPiece, piecePosition) {
-		currentPiece = rotatedPiece
-	}
-}
-
 func hardDrop() {
-	for tryMovePieceDown() {
+	for moveDown() {
 	}
 	lockPiece()
 	spawnPiece()
 }
 
-func lockPiece() {
-	if currentPiece == nil {
-		return
-	}
-	for rIdx, rowData := range currentPiece {
-		for cIdx, cell := range rowData {
-			if cell == 1 {
-				boardRow := piecePosition[0] + rIdx
-				boardCol := piecePosition[1] + cIdx
-				if boardRow >= 0 && boardRow < HEIGHT && boardCol >= 0 && boardCol < WIDTH {
-					BOARD[boardRow][boardCol] = 1
-				}
-			}
-		}
-	}
-	clearLines()
-
-	BOARDS[currentBoard] = BOARD
+// UI OPERATIONS
+func centerString(s string) string {
+	padding := max(0, (terminalWidth-len(s))/2)
+	return strings.Repeat(" ", padding) + s
 }
 
-func clearLines() {
-	if currentBoard != "center" {
-		return
-	}
-
-	tempScore := 0.0
-	multiplier := 1.0
-	linesCleared := 0
-
-	for r := HEIGHT - 1; r >= 0; {
-		isLineFull := true
-		for c := range WIDTH {
-			if BOARD[r][c] == 0 {
-				isLineFull = false
-				break
-			}
-		}
-
-		if isLineFull {
-			linesCleared++
-			for moveR := r; moveR > 0; moveR-- {
-				copy(BOARD[moveR][:], BOARD[moveR-1][:])
-			}
-			BOARD[0] = [WIDTH]int{}
-		} else {
-			r--
-		}
-	}
-
-	if linesCleared > 0 {
-		if linesCleared == 1 {
-			tempScore = 100
-		} else if linesCleared == 2 {
-			tempScore = 300
-		} else if linesCleared == 3 {
-			tempScore = 500
-		} else {
-			tempScore = 850
-		}
-		BOARDS[currentBoard] = BOARD
-
-		leftMultiplier := checkAndGetMultiplierFromBoard("left")
-		rightMultiplier := checkAndGetMultiplierFromBoard("right")
-
-		multiplier = (leftMultiplier * rightMultiplier)
-
-		tempScore *= multiplier
-		score += tempScore
-
-		switchBoard("center")
-	}
-}
-
-func checkAndGetMultiplierFromBoard(boardName string) float64 {
+// SCORE OPERATIONS
+func scoreMultipliers(boardName string) float64 {
 	tempCurrentBoard := currentBoard
 	switchBoard(boardName)
 
@@ -397,7 +240,7 @@ func checkAndGetMultiplierFromBoard(boardName string) float64 {
 	for r := HEIGHT - 1; r >= 0; {
 		isLineFull := true
 		for c := range WIDTH {
-			if BOARD[r][c] == 0 {
+			if board[r][c] == 0 {
 				isLineFull = false
 				break
 			}
@@ -406,15 +249,15 @@ func checkAndGetMultiplierFromBoard(boardName string) float64 {
 		if isLineFull {
 			linesCleared++
 			for moveR := r; moveR > 0; moveR-- {
-				copy(BOARD[moveR][:], BOARD[moveR-1][:])
+				copy(board[moveR][:], board[moveR-1][:])
 			}
-			BOARD[0] = [WIDTH]int{}
+			board[0] = [WIDTH]int{}
 		} else {
 			r--
 		}
 	}
 
-	BOARDS[boardName] = BOARD
+	boards[boardName] = board
 	switchBoard(tempCurrentBoard)
 
 	if linesCleared == 0 {
@@ -428,6 +271,50 @@ func checkAndGetMultiplierFromBoard(boardName string) float64 {
 	} else {
 		return 3
 	}
+}
+
+func init() {
+	boards["left"] = [HEIGHT][WIDTH]int{}
+	boards["center"] = [HEIGHT][WIDTH]int{}
+	boards["right"] = [HEIGHT][WIDTH]int{}
+	board = boards[currentBoard]
+	gameWidth = 3*(WIDTH*len(BLOCK_CELL)+2) + 2
+	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	score = 0
+	clear = make(map[string]func())
+	clear["linux"] = func() {
+		cmd := exec.Command("clear")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	}
+	clear["windows"] = func() {
+		cmd := exec.Command("cmd", "/c", "cls")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	}
+	updateWidth()
+}
+
+func isValidState(pieceToCheck [][]int, pos [2]int) bool {
+	if pieceToCheck == nil {
+		return false
+	}
+	for rowIdx, rowData := range pieceToCheck {
+		for cellIdx, cell := range rowData {
+			if cell == 1 {
+				boardRow := pos[0] + rowIdx
+				boardCol := pos[1] + cellIdx
+
+				if boardRow < 0 || boardRow >= HEIGHT || boardCol < 0 || boardCol >= WIDTH {
+					return false
+				}
+				if board[boardRow][boardCol] == 1 {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 func listenForInput() {
@@ -457,6 +344,130 @@ func listenForInput() {
 	}
 }
 
+func lockPiece() {
+	if currentPiece == nil {
+		return
+	}
+	for rowIdx, rowData := range currentPiece {
+		for cellIdx, cell := range rowData {
+			if cell == 1 {
+				boardRow := piecePosition[0] + rowIdx
+				boardCol := piecePosition[1] + cellIdx
+				if boardRow >= 0 && boardRow < HEIGHT && boardCol >= 0 && boardCol < WIDTH {
+					board[boardRow][boardCol] = 1
+				}
+			}
+		}
+	}
+	clearLines()
+
+	boards[currentBoard] = board
+}
+
+func moveDown() bool {
+	nextPosition := [2]int{piecePosition[0] + 1, piecePosition[1]}
+	if isValidState(currentPiece, nextPosition) {
+		piecePosition = nextPosition
+		return true
+	}
+	return false
+}
+
+func moveHorizontally(deltaX int) {
+	nextPosition := [2]int{piecePosition[0], piecePosition[1] + deltaX}
+	if isValidState(currentPiece, nextPosition) {
+		piecePosition = nextPosition
+	}
+}
+
+func rotate() {
+	if currentPiece == nil || len(currentPiece) == 0 || len(currentPiece[0]) == 0 {
+		return
+	}
+
+	originalRows := len(currentPiece)
+	originalCols := len(currentPiece[0])
+
+	rotatedPiece := make([][]int, originalCols)
+	for i := range rotatedPiece {
+		rotatedPiece[i] = make([]int, originalRows)
+	}
+
+	for r := range currentPiece {
+		for c := range currentPiece[r] {
+			rotatedPiece[c][originalRows-1-r] = currentPiece[r][c]
+		}
+	}
+
+	if isValidState(rotatedPiece, piecePosition) {
+		currentPiece = rotatedPiece
+	}
+}
+
+func setNext() {
+	shapes := map[string][][]int{
+		"I": {{1, 1, 1, 1}},
+		"O": {{1, 1}, {1, 1}},
+		"T": {{0, 1, 0}, {1, 1, 1}},
+		"S": {{0, 1, 1}, {1, 1, 0}},
+		"Z": {{1, 1, 0}, {0, 1, 1}},
+		"J": {{1, 0, 0}, {1, 1, 1}},
+		"L": {{0, 0, 1}, {1, 1, 1}},
+	}
+
+	keys := make([]string, 0, len(shapes))
+	for shape := range shapes {
+		keys = append(keys, shape)
+	}
+
+	if len(keys) > 0 {
+		randomKey := keys[rng.Intn(len(keys))]
+		nextPiece = shapes[randomKey]
+	} else {
+		nextPiece = [][]int{{1}}
+	}
+}
+
+func spawnPiece() {
+	currentPiece = nextPiece
+	if len(currentPiece) > 0 && len(currentPiece[0]) > 0 {
+		piecePosition = [2]int{0, WIDTH/2 - len(currentPiece[0])/2}
+	} else {
+		piecePosition = [2]int{0, WIDTH / 2}
+		currentPiece = [][]int{{1}}
+	}
+
+	if !isValidState(currentPiece, piecePosition) {
+		callClear()
+		drawBoard()
+		os.Exit(0)
+	}
+	setNext()
+}
+
+func switchBoard(newBoard string) {
+	boards[currentBoard] = board
+	currentBoard = newBoard
+	board = boards[currentBoard]
+}
+
+func updateFallSpeedByLevel() {
+	baseFallSpeed := 10.0
+	newSpeed := max(0.0, baseFallSpeed-(float64(level)*0.5))
+
+	fallInterval = newSpeed
+
+	if gameTicker != nil {
+		gameTicker.Reset(time.Duration(float64(time.Second) * fallInterval / float64(FPS)))
+	}
+}
+
+func updateWidth() {
+	if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+		terminalWidth = width
+	}
+}
+
 func main() {
 	setNext()
 	spawnPiece()
@@ -465,13 +476,13 @@ func main() {
 
 	drawBoard()
 
-	ticker := time.NewTicker(time.Duration(float32(time.Second) * fall_speed))
-	defer ticker.Stop()
+	gameTicker = time.NewTicker(time.Duration(float64(time.Second) * fallInterval / float64(FPS)))
+	defer gameTicker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
-			if !tryMovePieceDown() {
+		case <-gameTicker.C:
+			if !moveDown() {
 				lockPiece()
 				spawnPiece()
 			}
@@ -486,18 +497,18 @@ func main() {
 			actionTaken := true
 			switch inputKey {
 			case 'a', 'A', 'h', 'H':
-				tryMoveHorizontal(-1)
+				moveHorizontally(-1)
 			case 'd', 'D', 'l', 'L':
-				tryMoveHorizontal(1)
+				moveHorizontally(1)
 			case 's', 'S', 'j', 'J':
-				if !tryMovePieceDown() {
+				if !moveDown() {
 					lockPiece()
 					spawnPiece()
 				}
 			case 'f', 'F':
 				hardDrop()
 			case 'w', 'W', 'k', 'K':
-				tryRotate()
+				rotate()
 			case 'q', 'Q':
 				switch currentBoard {
 				case "left":
