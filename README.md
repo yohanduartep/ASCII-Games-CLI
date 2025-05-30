@@ -13,6 +13,8 @@ Clone the repository:
 ```bash
 git clone https://github.com/yohanduartep/ascii-terminal-games.git
 cd ascii-terminal-games
-
+cd gamefolder  # Replace with the specific game folder you want to run
+go run .
+have fun! :)
 
 ```
